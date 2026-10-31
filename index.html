@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>MinBuss</title>
+  <meta name="description" content="Dine faste holdeplasser og linjer – neste avgang og sanntidskart, basert på åpne data fra Entur." />
+  <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="MinBuss" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="icons/icon.svg" alt="" width="28" height="28" />
+      <h1 id="view-title">Avganger</h1>
+    </div>
+    <div class="topbar-actions">
+      <span id="updated" class="updated" aria-live="polite"></span>
+      <button id="btn-add" class="icon-btn" aria-label="Legg til holdeplass">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Avganger -->
+    <section id="view-departures" class="view active" aria-label="Avganger">
+      <div id="departures"></div>
+    </section>
+
+    <!-- Kart -->
+    <section id="view-map" class="view" aria-label="Sanntidskart">
+      <div id="map"></div>
+      <div id="map-chips" class="map-chips"></div>
+      <div class="map-buttons">
+        <button id="btn-locate" class="fab" aria-label="Vis min posisjon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7.5"/></svg>
+        </button>
+        <button id="btn-fit" class="fab" aria-label="Vis alle kjøretøy">
+          <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+      </div>
+      <div id="map-status" class="map-status"></div>
+    </section>
+
+    <!-- Favoritter -->
+    <section id="view-favorites" class="view" aria-label="Favoritter">
+      <div class="fav-section">
+        <div class="fav-head">
+          <h2>Holdeplasser og stasjoner</h2>
+          <button class="pill-btn" data-action="add-stop">+ Legg til</button>
+        </div>
+        <ul id="fav-stops" class="fav-list"></ul>
+      </div>
+      <div class="fav-section">
+        <div class="fav-head">
+          <h2>Linjer</h2>
+          <button class="pill-btn" data-action="add-line">+ Legg til</button>
+        </div>
+        <p class="hint">Favorittlinjer vises i sanntidskartet og kan brukes som filter på holdeplassene.</p>
+        <ul id="fav-lines" class="fav-list"></ul>
+      </div>
+      <p class="credits">Data: <a href="https://developer.entur.no/" target="_blank" rel="noopener">Entur</a> (NLOD) · Kart © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a></p>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Hovedmeny">
+    <button class="tab active" data-view="departures">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <span>Avganger</span>
+    </button>
+    <button class="tab" data-view="map">
+      <svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg>
+      <span>Kart</span>
+    </button>
+    <button class="tab" data-view="favorites">
+      <svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></svg>
+      <span>Favoritter</span>
+    </button>
+  </nav>
+
+  <!-- Bottom sheet -->
+  <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+  <div id="sheet" class="sheet" role="dialog" aria-modal="true" hidden>
+    <div class="sheet-grip"></div>
+    <div id="sheet-body"></div>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

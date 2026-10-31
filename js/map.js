@@ -122,6 +122,10 @@ export function initMap() {
     if (b) { setBasemap(b.dataset.basemap); toggleLayerPanel(false); }
   });
   map.on('click movestart', () => toggleLayerPanel(false));
+  map.on('click', () => { if (selectedId) selectVehicle(null); });
+  document.getElementById('focus-card').addEventListener('click', (e) => {
+    if (e.target.closest('[data-focus-close]')) selectVehicle(null);
+  });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggleLayerPanel(false); });
 
   shapeLayer = L.layerGroup().addTo(map);
@@ -260,6 +264,7 @@ function publish() {
   }
   lastVehicles = [...vehState.values()];
   syncMarkers(lastVehicles);
+  renderFocusCard();
   renderChips();
   updateStatus();
   if (firstFit && lastVehicles.length) { fitAll(false); firstFit = false; }
@@ -268,11 +273,7 @@ function publish() {
 function updateStatus() {
   if (!active || !visibleLines().length) return;
   const n = lastVehicles.length;
-  const sel = selectedId && vehState.get(selectedId);
-  if (sel) {
-    setStatus(`Følger ${sel.publicCode ? 'linje ' + sel.publicCode : 'kjøretøy'}${sel.destination ? ' → ' + sel.destination : ''} · oppdateres hvert ${FOCUS_MS / 1000}. sekund`);
-    return;
-  }
+  if (selectedId) { setStatus(''); return; } // infokortet øverst viser status for valgt kjøretøy
   if (!n) { setStatus('Ingen kjøretøy med GPS-posisjon på valgte linjer akkurat nå.', true); return; }
   setStatus(streamState === 'live'
     ? `${n} kjøretøy · live`
@@ -325,15 +326,30 @@ function vehicleIcon(v, line, selected = v.id === selectedId) {
   });
 }
 
-function popupHtml(v, line) {
+// Infokort øverst i kartet for valgt kjøretøy (i stedet for en boble som dekker kartet).
+function renderFocusCard() {
+  const el = document.getElementById('focus-card');
+  if (!el) return;
+  const v = selectedId && (vehState.get(selectedId) || markers.get(selectedId)?.data);
+  map.getContainer().classList.toggle('has-focus', !!v);
+  if (!v) { el.hidden = true; el.innerHTML = ''; return; }
+  const line = store.get().lines.find((l) => l.id === v.lineId);
+  const { bg, fg } = lineColors(line || { mode: v.mode });
   const mode = MODES[normMode(line?.mode || v.mode)].label;
-  const rows = [
-    v.delay != null ? `<div>${delayText(v.delay)}${v.congestion ? ' · kø' : ''}</div>` : '',
-    v.occupancy && OCCUPANCY[v.occupancy] ? `<div>${OCCUPANCY[v.occupancy]}</div>` : '',
-    `<div class="muted">Posisjon fra ${agoText(v.lastUpdated)}${v.id === selectedId ? ' · følges tett' : ''}</div>`,
-  ].join('');
-  return `<div class="veh-pop"><strong>${esc(mode)} ${esc(v.publicCode || line?.publicCode || '')}</strong>
-    <div>→ ${esc(v.destination || line?.name || '')}</div>${rows}</div>`;
+  const meta = [
+    v.delay != null ? `<span class="${v.delay >= 120 ? 'warn' : ''}">${esc(delayText(v.delay))}${v.congestion ? ' · kø' : ''}</span>` : '',
+    v.occupancy && OCCUPANCY[v.occupancy] ? esc(OCCUPANCY[v.occupancy]) : '',
+  ].filter(Boolean).join(' · ');
+  el.innerHTML = `
+    <span class="line-badge" style="--lc:${bg};--lt:${fg}">${esc(v.publicCode || line?.publicCode || '?')}</span>
+    <div class="focus-main">
+      <b>${esc(mode)} → ${esc(v.destination || line?.name || '')}</b>
+      <small>${meta ? meta + ' · ' : ''}<i class="rt-dot"></i> oppdatert ${esc(agoText(v.lastUpdated))}</small>
+    </div>
+    <button class="icon-btn sm" data-focus-close aria-label="Slutt å følge">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>`;
+  el.hidden = false;
 }
 
 function syncMarkers(vs) {
@@ -346,14 +362,15 @@ function syncMarkers(vs) {
     if (existing) {
       animateTo(existing, [v.lat, v.lon], v.id === selectedId ? 900 : 1200);
       existing.marker.setIcon(vehicleIcon(v, line));
-      existing.marker.setPopupContent(popupHtml(v, line));
+      existing.marker.setZIndexOffset(v.id === selectedId ? 1000 : 0);
       existing.data = v;
     } else {
-      const marker = L.marker([v.lat, v.lon], { icon: vehicleIcon(v, line), keyboard: false })
-        .bindPopup(popupHtml(v, line), { autoPan: true })
+      const marker = L.marker([v.lat, v.lon], { icon: vehicleIcon(v, line), keyboard: false, title: `Linje ${v.publicCode || ''}` })
         .addTo(vehicleLayer);
-      marker.on('popupopen', () => selectVehicle(v.id));
-      marker.on('popupclose', () => { if (selectedId === v.id) selectVehicle(null); });
+      marker.on('click', (e) => {
+        L.DomEvent.stop(e);
+        selectVehicle(selectedId === v.id ? null : v.id);
+      });
       markers.set(v.id, { marker, data: v });
     }
   }
@@ -373,8 +390,12 @@ function selectVehicle(id) {
     const line = store.get().lines.find((l) => l.id === m.data.lineId);
     m.marker.setIcon(vehicleIcon(m.data, line));
     m.marker.setZIndexOffset(pid === id ? 1000 : 0);
-    m.marker.setPopupContent(popupHtml(m.data, line));
   }
+  if (id && markers.get(id)) {
+    const ll = markers.get(id).marker.getLatLng();
+    if (!map.getBounds().pad(-0.2).contains(ll)) map.panTo(ll, { animate: true });
+  }
+  renderFocusCard();
   stopFocusPolling();
   if (id && active && !document.hidden) startFocusPolling();
   updateStatus();

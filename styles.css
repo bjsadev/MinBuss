@@ -226,6 +226,9 @@ body[data-view="map"] main { padding-bottom: 0; }
 .map-status.prominent { color: var(--text); border-radius: 14px; }
 
 .leaflet-container { font: inherit; }
+@media (prefers-color-scheme: dark) {
+  .basemap { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
+}
 .leaflet-control-attribution { font-size: 10px; margin-bottom: calc(var(--tabbar-h) + var(--safe-b)) !important; }
 .veh-wrap { background: none; border: 0; }
 .veh {

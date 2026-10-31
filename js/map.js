@@ -19,12 +19,33 @@ const vehState = new Map();     // vehicleId -> kjøretøy
 let closeStream = null, streamKey = '', streamState = 'down';
 let statusEl, chipsEl;
 
-const dark = window.matchMedia('(prefers-color-scheme: dark)');
+// Kartbakgrunn uten API-nøkkel: Kartverkets åpne gråtonekart (CC BY 4.0).
+// Faller tilbake til OpenStreetMap hvis Kartverket ikke svarer. Mørk modus lages med CSS-filter.
+const BASEMAPS = [
+  {
+    url: 'https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png',
+    options: { maxZoom: 18, attribution: '© <a href="https://www.kartverket.no/" target="_blank" rel="noopener">Kartverket</a>' },
+  },
+  {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options: { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' },
+  },
+];
 
-function tileUrl() {
-  return dark.matches
-    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+function addBasemap(i = 0) {
+  const bm = BASEMAPS[i];
+  const layer = L.tileLayer(bm.url, { ...bm.options, className: 'basemap' }).addTo(map);
+  let errors = 0, loaded = 0;
+  layer.on('tileload', () => { loaded++; });
+  layer.on('tileerror', () => {
+    errors++;
+    // Mange feil og ingen vellykkede fliser: bytt til neste kilde.
+    if (errors >= 4 && loaded === 0 && i + 1 < BASEMAPS.length) {
+      map.removeLayer(layer);
+      tiles = addBasemap(i + 1);
+    }
+  });
+  return layer;
 }
 
 export function initMap() {
@@ -34,11 +55,8 @@ export function initMap() {
 
   map = L.map('map', { zoomControl: false, attributionControl: true })
     .setView([60.39, 5.33], 12); // standard: Bergen sentrum
-  tiles = L.tileLayer(tileUrl(), {
-    maxZoom: 19, subdomains: 'abcd',
-    attribution: '© OpenStreetMap, © CARTO · Entur',
-  }).addTo(map);
-  dark.addEventListener?.('change', () => tiles.setUrl(tileUrl()));
+  map.attributionControl.addAttribution('Sanntid © Entur');
+  tiles = addBasemap(0);
 
   shapeLayer = L.layerGroup().addTo(map);
   stopLayer = L.layerGroup().addTo(map);

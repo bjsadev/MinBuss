@@ -5,6 +5,7 @@ import {
   OCCUPANCY, debounce, MODES, normMode,
 } from './ui.js';
 import { initMap, showMap, hideMap, focusLine } from './map.js';
+import * as theme from './theme.js';
 
 const REFRESH_MS = 30000;
 const $ = (s, el = document) => el.querySelector(s);
@@ -583,6 +584,32 @@ $('#view-favorites').addEventListener('click', (e) => {
     if (act === 'vis') store.toggleLineHidden(id);
   }
 });
+
+// ---------------- Tema ----------------
+
+const SUN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const MOON = '<svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>';
+
+function renderTheme() {
+  const dark = theme.isDark();
+  const btn = $('#btn-theme');
+  btn.innerHTML = dark ? SUN : MOON;
+  btn.setAttribute('aria-label', dark ? 'Bytt til lys modus' : 'Bytt til mørk modus');
+  btn.title = btn.getAttribute('aria-label');
+  const choice = theme.getChoice();
+  document.querySelectorAll('[data-theme-choice]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.themeChoice === choice)));
+}
+$('#btn-theme').addEventListener('click', () => {
+  theme.toggle();
+  toast(theme.isDark() ? 'Mørk modus' : 'Lys modus');
+});
+$('#theme-seg').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-theme-choice]');
+  if (b) theme.setChoice(b.dataset.themeChoice);
+});
+theme.onThemeChange(renderTheme);
+renderTheme();
 
 // ---------------- Oppstart ----------------
 

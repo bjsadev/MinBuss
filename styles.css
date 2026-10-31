@@ -18,8 +18,9 @@
   color-scheme: light dark;
 }
 
+/* Tema: følger systemet, eller valget i appen (data-theme="light"/"dark" på <html>). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0b0f16;
     --surface: #141a24;
     --surface-2: #1b2230;
@@ -30,8 +31,23 @@
     --accent-soft: #1b2a4a;
     --warn: #ff8a4c;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .25);
+    color-scheme: dark;
   }
 }
+:root[data-theme="dark"] {
+    --bg: #0b0f16;
+    --surface: #141a24;
+    --surface-2: #1b2230;
+    --text: #e8edf6;
+    --muted: #8b97ab;
+    --line: #253043;
+    --accent: #6d9bff;
+    --accent-soft: #1b2a4a;
+    --warn: #ff8a4c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -172,6 +188,11 @@ body[data-view="map"] main { padding-bottom: 0; }
 .ghost-btn.wide { width: 100%; margin: 10px 0 4px; }
 .danger-btn { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 .text-btn { border: 0; background: none; color: var(--accent); font-weight: 650; padding: 6px 4px; }
+.seg { display: flex; gap: 4px; padding: 4px; margin: 10px 8px 6px 0; border-radius: 12px; background: var(--surface-2); }
+.seg button { flex: 1; border: 0; border-radius: 9px; padding: 9px 8px; background: none; color: var(--muted); font-weight: 650; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.seg button svg { width: 18px; height: 18px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+#btn-theme { background: var(--surface); color: var(--text); }
 .pill-btn { border: 0; border-radius: 999px; padding: 6px 12px; background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 14px; }
 
 /* ---------- Tabbar ---------- */
@@ -227,8 +248,9 @@ body[data-view="map"] main { padding-bottom: 0; }
 
 .leaflet-container { font: inherit; }
 @media (prefers-color-scheme: dark) {
-  .basemap { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
+  :root:not([data-theme="light"]) .basemap { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
 }
+:root[data-theme="dark"] .basemap { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
 .leaflet-control-attribution { font-size: 10px; margin-bottom: calc(var(--tabbar-h) + var(--safe-b)) !important; }
 .veh-wrap { background: none; border: 0; }
 .veh {

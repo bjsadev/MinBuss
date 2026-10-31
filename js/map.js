@@ -4,7 +4,8 @@ import { store } from './store.js';
 import { lineColors, normMode, esc, delayText, agoText, OCCUPANCY, MODES } from './ui.js';
 
 const L = window.L;
-const POLL_MS = 10000;
+const POLL_MS = 10000;        // uten strøm
+const POLL_LIVE_MS = 30000;   // med strøm: kun avstemming (fjerner kjøretøy som er borte)
 const STALE_MS = 5 * 60 * 1000;
 
 let map, tiles, stopLayer, shapeLayer, vehicleLayer, meMarker;
@@ -14,6 +15,8 @@ let firstFit = true;
 const markers = new Map();      // vehicleId -> { marker, data, anim }
 const shapeCache = new Map();   // lineId -> [[lat,lon]...][]
 let lastVehicles = [];
+const vehState = new Map();     // vehicleId -> kjøretøy
+let closeStream = null, streamKey = '', streamState = 'down';
 let statusEl, chipsEl;
 
 const dark = window.matchMedia('(prefers-color-scheme: dark)');
@@ -127,32 +130,80 @@ async function refreshStatic() {
 function startPolling() {
   stopPolling();
   pollVehicles();
-  timer = setInterval(pollVehicles, POLL_MS);
+  timer = setInterval(pollVehicles, streamState === 'live' ? POLL_LIVE_MS : POLL_MS);
+  startStream();
 }
-function stopPolling() { clearInterval(timer); timer = null; }
+function stopPolling() {
+  clearInterval(timer); timer = null;
+  closeStream?.(); closeStream = null; streamKey = ''; streamState = 'down';
+}
+
+// Live-strøm av posisjoner (GraphQL-abonnement). Henting over HTTP er reserven.
+function startStream() {
+  const ids = visibleLines().map((l) => l.id);
+  const key = ids.join(',');
+  if (key === streamKey && closeStream) return;
+  closeStream?.();
+  streamKey = key;
+  if (!ids.length) { closeStream = null; return; }
+  closeStream = api.subscribeVehicles(ids, (vs) => {
+    for (const v of vs) vehState.set(v.id, v);
+    publish();
+  }, (st) => {
+    const was = streamState;
+    streamState = st;
+    if ((was === 'live') !== (st === 'live') && timer) {
+      clearInterval(timer);
+      timer = setInterval(pollVehicles, st === 'live' ? POLL_LIVE_MS : POLL_MS);
+    }
+    updateStatus();
+  });
+}
+
+function publish() {
+  const visible = new Set(visibleLines().map((l) => l.id));
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [id, v] of vehState) {
+    if (!visible.has(v.lineId) || (v.lastUpdated && v.lastUpdated.getTime() < cutoff)) vehState.delete(id);
+  }
+  lastVehicles = [...vehState.values()];
+  syncMarkers(lastVehicles);
+  renderChips();
+  updateStatus();
+  if (firstFit && lastVehicles.length) { fitAll(false); firstFit = false; }
+}
+
+function updateStatus() {
+  if (!active || !visibleLines().length) return;
+  const n = lastVehicles.length;
+  if (!n) { setStatus('Ingen kjøretøy med GPS-posisjon på valgte linjer akkurat nå.', true); return; }
+  setStatus(streamState === 'live'
+    ? `${n} kjøretøy · live`
+    : `${n} kjøretøy · oppdateres hvert ${POLL_MS / 1000}. sekund`);
+}
 
 let inflight = null;
 async function pollVehicles() {
   const lines = visibleLines();
   if (!store.get().lines.length) {
     setStatus('Legg til favorittlinjer for å se kjøretøy i sanntid.', true);
-    syncMarkers([]);
+    vehState.clear(); syncMarkers([]);
     return;
   }
-  if (!lines.length) { setStatus('Alle linjer er skjult. Trykk på en linje over for å vise den.', true); syncMarkers([]); return; }
+  if (!lines.length) { setStatus('Alle linjer er skjult. Trykk på en linje over for å vise den.', true); vehState.clear(); syncMarkers([]); return; }
+  startStream(); // linjeutvalget kan ha endret seg
   inflight?.abort();
   inflight = new AbortController();
   try {
     const vs = await api.vehicles(lines.map((l) => l.id), inflight.signal);
-    lastVehicles = vs;
-    syncMarkers(vs);
-    renderChips();
-    if (!vs.length) {
-      setStatus('Ingen kjøretøy med sanntidsposisjon på valgte linjer akkurat nå.', true);
-    } else {
-      setStatus(`${vs.length} kjøretøy · oppdateres hvert ${POLL_MS / 1000}. sekund`);
+    // Fullt øyeblikksbilde: erstatt tilstanden, men behold nyere strømmede posisjoner.
+    const prev = new Map(vehState);
+    vehState.clear();
+    for (const v of vs) {
+      const p = prev.get(v.id);
+      vehState.set(v.id, p?.lastUpdated && v.lastUpdated && p.lastUpdated > v.lastUpdated ? p : v);
     }
-    if (firstFit && vs.length) { fitAll(false); firstFit = false; }
+    publish();
   } catch (e) {
     if (e.name !== 'AbortError') setStatus(`Kunne ikke hente posisjoner: ${e.message}`, true);
   }

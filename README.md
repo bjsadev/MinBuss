@@ -66,13 +66,15 @@ manifest.webmanifest  PWA-manifest
 | --- | --- | --- |
 | Søk etter holdeplass / nær meg | Geocoder v1 | `api.entur.io/geocoder/v1/autocomplete`, `/reverse` |
 | Avganger (sanntid), linjer på holdeplass, linjesøk, traséer | Journey Planner v3 (GraphQL) | `api.entur.io/journey-planner/v3/graphql` |
-| Kjøretøyposisjoner | Vehicles v2 (GraphQL) | `api.entur.io/realtime/v2/vehicles/graphql` |
+| Kjøretøyposisjoner (GPS) | Vehicles v2 (GraphQL) | `api.entur.io/realtime/v2/vehicles/graphql` (spørring)<br>`wss://api.entur.io/realtime/v2/vehicles/subscriptions` (abonnement) |
 
 - Alle kall sender `ET-Client-Name: minbuss-web`, slik Entur krever. Sett ditt eget navn i
   `js/api.js` (`CLIENT_NAME`) hvis du publiserer appen.
 - Avganger for alle holdeplasser hentes i én GraphQL-spørring (med alias). Linjefiltre sendes som
   `whiteListed: { lines: [...] }`.
-- Kjøretøyposisjoner hentes hvert 10. sekund, og bare mens kartet er synlig og appen er i forgrunnen.
+- Kjøretøyposisjoner strømmes live via GraphQL-abonnement (`graphql-transport-ws`) mens kartet er synlig.
+  En vanlig spørring henter hele bildet hvert 30. sekund og fjerner kjøretøy som er borte. Hvis strømmen
+  ikke kommer i gang, hentes posisjonene hvert 10. sekund i stedet.
 - Kjøretøyposisjoner finnes bare for operatører som deler dem med Entur (blant annet Skyss, Ruter,
   AtB og Kolumbus). Linjer uten slike data får en melding i kartet.
 - Entur-MCP-serverne (Journey Planner og transitdata) er brukt under utviklingen for å kontrollere

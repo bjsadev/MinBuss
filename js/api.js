@@ -1,7 +1,7 @@
 // Klient for Enturs åpne API-er (https://developer.entur.no/apis/open)
 //  - Journey Planner v3 (GraphQL): avganger, linjer, linjetraséer
 //  - Geocoder v1 (REST): søk etter holdeplasser / holdeplasser i nærheten
-//  - Vehicles v2 (GraphQL): sanntidsposisjoner for kjøretøy
+//  - Vehicles v2 (GraphQL): sanntidsposisjoner (GPS) for kjøretøy – spørring + abonnement (WebSocket)
 //
 // Entur ber alle klienter identifisere seg med headeren ET-Client-Name
 // på formen "<organisasjon>-<applikasjon>".
@@ -10,6 +10,7 @@ export const CLIENT_NAME = 'minbuss-web';
 
 const JP_URL = 'https://api.entur.io/journey-planner/v3/graphql';
 const VEHICLES_URL = 'https://api.entur.io/realtime/v2/vehicles/graphql';
+const VEHICLES_WS_URL = 'wss://api.entur.io/realtime/v2/vehicles/subscriptions';
 const GEOCODER_URL = 'https://api.entur.io/geocoder/v1';
 
 const HEADERS = { 'ET-Client-Name': CLIENT_NAME };
@@ -177,41 +178,100 @@ export async function lineShapes(lineId, signal) {
 
 // ---------- Vehicles ----------
 
-/** Sanntidsposisjoner for kjøretøy på gitte linjer. */
+const VEHICLE_FIELDS = `
+  vehicleId
+  line { lineRef publicCode lineName }
+  mode
+  location { latitude longitude }
+  bearing delay inCongestion occupancyStatus
+  destinationName originName
+  lastUpdated
+`;
+
+export function normalizeVehicle(v, lineId) {
+  if (!v?.location) return null;
+  return {
+    id: v.vehicleId,
+    lineId: lineId || v.line?.lineRef,
+    publicCode: v.line?.publicCode,
+    lat: v.location.latitude,
+    lon: v.location.longitude,
+    bearing: v.bearing,
+    delay: v.delay, // sekunder
+    congestion: v.inCongestion,
+    occupancy: v.occupancyStatus,
+    destination: v.destinationName,
+    origin: v.originName,
+    lastUpdated: v.lastUpdated ? new Date(v.lastUpdated) : null,
+    mode: (v.mode || '').toLowerCase(),
+  };
+}
+
+/** Sanntidsposisjoner (GPS) for kjøretøy på gitte linjer – ett øyeblikksbilde. */
 export async function vehicles(lineIds, signal) {
   if (!lineIds.length) return [];
-  const parts = lineIds.map((id, i) => `v${i}: vehicles(lineRef: ${JSON.stringify(id)}) {
-    vehicleId
-    line { lineRef publicCode lineName }
-    mode
-    location { latitude longitude }
-    bearing delay inCongestion occupancyStatus
-    destinationName originName
-    lastUpdated
-  }`);
+  const parts = lineIds.map((id, i) => `v${i}: vehicles(lineRef: ${JSON.stringify(id)}) { ${VEHICLE_FIELDS} }`);
   const data = await gql(VEHICLES_URL, `{ ${parts.join('\n')} }`, {}, signal);
   const out = [];
   lineIds.forEach((id, i) => {
     for (const v of data[`v${i}`] || []) {
-      if (!v.location) continue;
-      out.push({
-        id: v.vehicleId,
-        lineId: id,
-        publicCode: v.line?.publicCode,
-        lat: v.location.latitude,
-        lon: v.location.longitude,
-        bearing: v.bearing,
-        delay: v.delay, // sekunder
-        congestion: v.inCongestion,
-        occupancy: v.occupancyStatus,
-        destination: v.destinationName,
-        origin: v.originName,
-        lastUpdated: v.lastUpdated ? new Date(v.lastUpdated) : null,
-        mode: (v.mode || '').toLowerCase(),
-      });
+      const n = normalizeVehicle(v, id);
+      if (n) out.push(n);
     }
   });
   return out;
+}
+
+/**
+ * Strømmer posisjonsoppdateringer via GraphQL-abonnement (protokollen graphql-transport-ws).
+ * Leverer kun kjøretøy som har endret seg; kombineres med vehicles() for fullt bilde.
+ * Kobler til på nytt med økende ventetid. Returnerer en funksjon som stenger strømmen.
+ * @param {string[]} lineIds
+ * @param {(vs: object[]) => void} onVehicles
+ * @param {(state: 'connecting'|'live'|'down') => void} [onState]
+ */
+export function subscribeVehicles(lineIds, onVehicles, onState = () => {}) {
+  let ws = null, closed = false, retry = 0, retryTimer = null, pingTimer = null;
+  const connect = () => {
+    if (closed || !lineIds.length) return;
+    onState('connecting');
+    try {
+      ws = new WebSocket(`${VEHICLES_WS_URL}?ET-Client-Name=${encodeURIComponent(CLIENT_NAME)}`, 'graphql-transport-ws');
+    } catch { schedule(); return; }
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'connection_init', payload: { 'ET-Client-Name': CLIENT_NAME } }));
+    ws.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.type === 'connection_ack') {
+        retry = 0;
+        onState('live');
+        lineIds.forEach((id, i) => ws.send(JSON.stringify({
+          id: `l${i}`, type: 'subscribe',
+          payload: { query: `subscription { vehicles(lineRef: ${JSON.stringify(id)}) { ${VEHICLE_FIELDS} } }` },
+        })));
+        clearInterval(pingTimer);
+        pingTimer = setInterval(() => { if (ws?.readyState === 1) ws.send('{"type":"ping"}'); }, 25000);
+      } else if (msg.type === 'ping') {
+        ws.send('{"type":"pong"}');
+      } else if (msg.type === 'next') {
+        const i = Number(String(msg.id).slice(1));
+        const raw = msg.payload?.data?.vehicles;
+        const list = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((v) => normalizeVehicle(v, lineIds[i])).filter(Boolean);
+        if (list.length) onVehicles(list);
+      }
+    };
+    ws.onclose = () => { clearInterval(pingTimer); if (!closed) { onState('down'); schedule(); } };
+    ws.onerror = () => { try { ws.close(); } catch {} };
+  };
+  const schedule = () => {
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(connect, Math.min(60000, 2000 * 2 ** retry++) + Math.random() * 1000);
+  };
+  connect();
+  return () => {
+    closed = true;
+    clearTimeout(retryTimer); clearInterval(pingTimer);
+    if (ws && ws.readyState <= 1) { try { ws.close(1000); } catch {} }
+  };
 }
 
 // ---------- Hjelpere ----------

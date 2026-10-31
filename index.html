@@ -52,6 +52,12 @@
       <div id="map"></div>
       <div id="map-chips" class="map-chips"></div>
       <div class="map-buttons">
+        <div class="layer-wrap">
+          <button id="btn-layers" class="fab" aria-label="Velg kartvisning" aria-expanded="false" aria-controls="layer-panel">
+            <svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>
+          </button>
+          <div id="layer-panel" class="layer-panel" hidden></div>
+        </div>
         <button id="btn-locate" class="fab" aria-label="Vis min posisjon">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7.5"/></svg>
         </button>

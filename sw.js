@@ -1,6 +1,6 @@
 // Service worker: cacher app-skallet for rask oppstart og offline-visning.
 // Sanntidsdata fra Entur caches aldri.
-const CACHE = 'minbuss-v3';
+const CACHE = 'minbuss-v4';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/api.js', 'js/store.js', 'js/ui.js', 'js/map.js', 'js/theme.js',

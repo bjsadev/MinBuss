@@ -14,7 +14,7 @@ Den kjører som nettside og kan installeres på iPhone som app (PWA). All data k
   - Merker i linjefargen med linjenummer og en pil som viser kjøreretningen, og myk animasjon mellom posisjoner
   - Linjetraséene tegnes inn, og favorittholdeplassene vises på kartet
   - Linjefilter-chips med antall kjøretøy, «min posisjon» og «vis alle»
-  - Kartbakgrunn fra Kartverket (ingen API-nøkkel), med OpenStreetMap som reserve, og mørkt kart i mørk modus
+  - Velg kartvisning: enkelt gråtonekart, topografisk, gatekart (OpenStreetMap), flyfoto eller sjøkart. Ingen API-nøkkel, OpenStreetMap som reserve, og mørkt kart i mørk modus
 - **Favoritter**
   - Søk etter holdeplasser/stasjoner/kaier, eller finn holdeplasser **nær meg**
   - Søk etter linjer på nummer eller navn, eller trykk på en avgang for å legge linjen til direkte
@@ -83,4 +83,4 @@ manifest.webmanifest  PWA-manifest
 
 ## Lisens og kreditering
 
-Data © Entur, lisensiert under [NLOD](https://data.norge.no/nlod/no/2.0). Kart © Kartverket (CC BY 4.0), med OpenStreetMap som reserve.
+Data © Entur, lisensiert under [NLOD](https://data.norge.no/nlod/no/2.0). Kart © Kartverket (CC BY 4.0), © OpenStreetMap-bidragsytere, flyfoto © Esri m.fl.

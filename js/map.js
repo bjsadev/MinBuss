@@ -21,33 +21,90 @@ let closeStream = null, streamKey = '', streamState = 'down';
 let selectedId = null, selTimer = null, selAbort = null;
 let statusEl, chipsEl;
 
-// Kartbakgrunn uten API-nøkkel: Kartverkets åpne gråtonekart (CC BY 4.0).
-// Faller tilbake til OpenStreetMap hvis Kartverket ikke svarer. Mørk modus lages med CSS-filter.
-const BASEMAPS = [
-  {
+// Kartvisninger – alle uten API-nøkkel. Mørk modus lages med CSS-filter på kartene
+// der det gir mening (ikke på flyfoto). Hvis en kilde ikke svarer, byttes det til OpenStreetMap.
+const KV = '© <a href="https://www.kartverket.no/" target="_blank" rel="noopener">Kartverket</a>';
+const BASEMAPS = {
+  grey: {
+    label: 'Enkel', desc: 'Rolig gråtonekart',
     url: 'https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png',
-    options: { maxZoom: 18, attribution: '© <a href="https://www.kartverket.no/" target="_blank" rel="noopener">Kartverket</a>' },
+    options: { maxZoom: 18, attribution: KV }, darkFilter: true,
   },
-  {
+  topo: {
+    label: 'Topografisk', desc: 'Terreng og stier',
+    url: 'https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png',
+    options: { maxZoom: 18, attribution: KV }, darkFilter: true,
+  },
+  osm: {
+    label: 'Gatekart', desc: 'OpenStreetMap',
     url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    options: { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' },
+    options: { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }, darkFilter: true,
   },
-];
+  sat: {
+    label: 'Flyfoto', desc: 'Satellittbilder',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    options: { maxZoom: 19, attribution: 'Bilder © <a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>, Maxar, Earthstar Geographics' }, darkFilter: false,
+  },
+  sea: {
+    label: 'Sjøkart', desc: 'For båt og ferje',
+    url: 'https://cache.kartverket.no/v1/wmts/1.0.0/sjokartraster/default/webmercator/{z}/{y}/{x}.png',
+    options: { maxZoom: 18, attribution: KV }, darkFilter: false,
+  },
+};
+const BASEMAP_KEY = 'minbuss:basemap';
+let basemapId = 'grey';
+try { const b = localStorage.getItem(BASEMAP_KEY); if (BASEMAPS[b]) basemapId = b; } catch {}
 
-function addBasemap(i = 0) {
-  const bm = BASEMAPS[i];
-  const layer = L.tileLayer(bm.url, { ...bm.options, className: 'basemap' }).addTo(map);
+function setBasemap(id, { remember = true } = {}) {
+  if (!BASEMAPS[id]) id = 'grey';
+  const bm = BASEMAPS[id];
+  if (tiles) map.removeLayer(tiles);
+  basemapId = id;
+  if (remember) { try { localStorage.setItem(BASEMAP_KEY, id); } catch {} }
+  const layer = L.tileLayer(bm.url, { ...bm.options, className: `basemap ${bm.darkFilter ? 'dimmable' : ''}` }).addTo(map);
+  layer.bringToBack();
   let errors = 0, loaded = 0;
   layer.on('tileload', () => { loaded++; });
   layer.on('tileerror', () => {
     errors++;
-    // Mange feil og ingen vellykkede fliser: bytt til neste kilde.
-    if (errors >= 4 && loaded === 0 && i + 1 < BASEMAPS.length) {
-      map.removeLayer(layer);
-      tiles = addBasemap(i + 1);
+    // Mange feil og ingen vellykkede fliser: bytt midlertidig til OpenStreetMap.
+    if (errors >= 4 && loaded === 0 && id !== 'osm' && tiles === layer) {
+      setBasemap('osm', { remember: false });
+      setStatus(`«${bm.label}» svarer ikke akkurat nå – viser gatekart i stedet.`, true);
     }
   });
-  return layer;
+  tiles = layer;
+  renderLayerPanel();
+}
+
+// Forhåndsvisning: én kartflis fra midten av det du ser på nå.
+function previewUrl(bm) {
+  const z = Math.max(5, Math.min(14, Math.round(map.getZoom()) - 1));
+  const c = map.getCenter();
+  const n = 2 ** z;
+  const x = Math.floor((c.lng + 180) / 360 * n);
+  const r = c.lat * Math.PI / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n);
+  return bm.url.replace('{z}', z).replace('{x}', x).replace('{y}', y).replace('{s}', 'a').replace('{r}', '');
+}
+
+function renderLayerPanel() {
+  const panel = document.getElementById('layer-panel');
+  if (!panel || panel.hidden) return;
+  panel.innerHTML = `<p class="layer-title">Kartvisning</p><div class="layer-grid">${Object.entries(BASEMAPS).map(([id, bm]) => `
+    <button class="layer-opt" data-basemap="${id}" aria-pressed="${id === basemapId}">
+      <span class="layer-thumb ${bm.darkFilter ? 'dimmable' : ''}"><img src="${esc(previewUrl(bm))}" alt="" loading="lazy" onerror="this.remove()"></span>
+      <b>${esc(bm.label)}</b><small>${esc(bm.desc)}</small>
+    </button>`).join('')}</div>`;
+}
+
+function toggleLayerPanel(force) {
+  const panel = document.getElementById('layer-panel');
+  const btn = document.getElementById('btn-layers');
+  const open = force ?? panel.hidden;
+  panel.hidden = !open;
+  btn.setAttribute('aria-expanded', String(open));
+  if (open) renderLayerPanel();
 }
 
 export function initMap() {
@@ -58,7 +115,14 @@ export function initMap() {
   map = L.map('map', { zoomControl: false, attributionControl: true })
     .setView([60.39, 5.33], 12); // standard: Bergen sentrum
   map.attributionControl.addAttribution('Sanntid © Entur');
-  tiles = addBasemap(0);
+  setBasemap(basemapId, { remember: false });
+  document.getElementById('btn-layers').addEventListener('click', (e) => { e.stopPropagation(); toggleLayerPanel(); });
+  document.getElementById('layer-panel').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-basemap]');
+    if (b) { setBasemap(b.dataset.basemap); toggleLayerPanel(false); }
+  });
+  map.on('click movestart', () => toggleLayerPanel(false));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggleLayerPanel(false); });
 
   shapeLayer = L.layerGroup().addTo(map);
   // Skjul holdeplassnavn når man zoomer langt ut, så kartet ikke blir rotete.

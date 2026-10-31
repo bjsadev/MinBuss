@@ -222,6 +222,12 @@ export async function vehicles(lineIds, signal) {
   return out;
 }
 
+/** Ferskeste posisjon for ett bestemt kjøretøy (brukes når en buss er valgt i kartet). */
+export async function vehicleById(vehicleId, signal) {
+  const data = await gql(VEHICLES_URL, `query($id: String) { vehicles(vehicleId: $id) { ${VEHICLE_FIELDS} } }`, { id: vehicleId }, signal);
+  return normalizeVehicle((data.vehicles || [])[0]);
+}
+
 /**
  * Strømmer posisjonsoppdateringer via GraphQL-abonnement (protokollen graphql-transport-ws).
  * Leverer kun kjøretøy som har endret seg; kombineres med vehicles() for fullt bilde.

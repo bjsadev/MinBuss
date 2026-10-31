@@ -7,6 +7,7 @@ const L = window.L;
 const POLL_MS = 10000;        // uten strøm
 const POLL_LIVE_MS = 30000;   // med strøm: kun avstemming (fjerner kjøretøy som er borte)
 const STALE_MS = 5 * 60 * 1000;
+const FOCUS_MS = 2000;        // oppdateringsintervall for valgt kjøretøy
 
 let map, tiles, stopLayer, shapeLayer, vehicleLayer, meMarker;
 let timer = null;
@@ -17,6 +18,7 @@ const shapeCache = new Map();   // lineId -> [[lat,lon]...][]
 let lastVehicles = [];
 const vehState = new Map();     // vehicleId -> kjøretøy
 let closeStream = null, streamKey = '', streamState = 'down';
+let selectedId = null, selTimer = null, selAbort = null;
 let statusEl, chipsEl;
 
 // Kartbakgrunn uten API-nøkkel: Kartverkets åpne gråtonekart (CC BY 4.0).
@@ -59,6 +61,10 @@ export function initMap() {
   tiles = addBasemap(0);
 
   shapeLayer = L.layerGroup().addTo(map);
+  // Skjul holdeplassnavn når man zoomer langt ut, så kartet ikke blir rotete.
+  const labelZoom = () => map.getContainer().classList.toggle('hide-stop-labels', map.getZoom() < 12);
+  map.on('zoomend', labelZoom);
+  labelZoom();
   stopLayer = L.layerGroup().addTo(map);
   vehicleLayer = L.layerGroup().addTo(map);
 
@@ -123,8 +129,10 @@ async function refreshStatic() {
   for (const s of store.get().stops) {
     if (s.lat == null) continue;
     L.circleMarker([s.lat, s.lon], {
-      radius: 6, weight: 2, color: '#fff', fillColor: '#111827', fillOpacity: 0.9,
-    }).bindTooltip(esc(s.name), { direction: 'top', offset: [0, -6] }).addTo(stopLayer);
+      radius: 7, weight: 2.5, color: '#fff', fillColor: '#111827', fillOpacity: 0.95,
+    }).bindTooltip(esc(s.name), {
+      permanent: true, direction: 'right', offset: [9, 0], className: 'stop-label', interactive: false,
+    }).addTo(stopLayer);
   }
 
   // Traséer
@@ -147,11 +155,13 @@ async function refreshStatic() {
 
 function startPolling() {
   stopPolling();
+  if (selectedId) startFocusPolling();
   pollVehicles();
   timer = setInterval(pollVehicles, streamState === 'live' ? POLL_LIVE_MS : POLL_MS);
   startStream();
 }
 function stopPolling() {
+  stopFocusPolling();
   clearInterval(timer); timer = null;
   closeStream?.(); closeStream = null; streamKey = ''; streamState = 'down';
 }
@@ -194,6 +204,11 @@ function publish() {
 function updateStatus() {
   if (!active || !visibleLines().length) return;
   const n = lastVehicles.length;
+  const sel = selectedId && vehState.get(selectedId);
+  if (sel) {
+    setStatus(`Følger ${sel.publicCode ? 'linje ' + sel.publicCode : 'kjøretøy'}${sel.destination ? ' → ' + sel.destination : ''} · oppdateres hvert ${FOCUS_MS / 1000}. sekund`);
+    return;
+  }
   if (!n) { setStatus('Ingen kjøretøy med GPS-posisjon på valgte linjer akkurat nå.', true); return; }
   setStatus(streamState === 'live'
     ? `${n} kjøretøy · live`
@@ -232,14 +247,14 @@ function setStatus(text, prominent = false) {
   statusEl.classList.toggle('prominent', prominent);
 }
 
-function vehicleIcon(v, line) {
+function vehicleIcon(v, line, selected = v.id === selectedId) {
   const { bg, fg } = lineColors(line || { mode: v.mode });
   const stale = v.lastUpdated && Date.now() - v.lastUpdated.getTime() > STALE_MS;
   const arrow = v.bearing != null
     ? `<i class="veh-arrow" style="transform:rotate(${Math.round(v.bearing)}deg)"></i>` : '';
   return L.divIcon({
     className: 'veh-wrap',
-    html: `<div class="veh ${stale ? 'stale' : ''}" style="--lc:${bg};--lt:${fg}">${arrow}<span>${esc(v.publicCode || line?.publicCode || '')}</span></div>`,
+    html: `<div class="veh ${stale ? 'stale' : ''} ${selected ? 'selected' : ''}" style="--lc:${bg};--lt:${fg}">${arrow}<span>${esc(v.publicCode || line?.publicCode || '')}</span></div>`,
     iconSize: [34, 34],
     iconAnchor: [17, 17],
     popupAnchor: [0, -16],
@@ -251,7 +266,7 @@ function popupHtml(v, line) {
   const rows = [
     v.delay != null ? `<div>${delayText(v.delay)}${v.congestion ? ' · kø' : ''}</div>` : '',
     v.occupancy && OCCUPANCY[v.occupancy] ? `<div>${OCCUPANCY[v.occupancy]}</div>` : '',
-    `<div class="muted">Oppdatert ${agoText(v.lastUpdated)}</div>`,
+    `<div class="muted">Posisjon fra ${agoText(v.lastUpdated)}${v.id === selectedId ? ' · følges tett' : ''}</div>`,
   ].join('');
   return `<div class="veh-pop"><strong>${esc(mode)} ${esc(v.publicCode || line?.publicCode || '')}</strong>
     <div>→ ${esc(v.destination || line?.name || '')}</div>${rows}</div>`;
@@ -265,28 +280,78 @@ function syncMarkers(vs) {
     const line = lines.get(v.lineId);
     const existing = markers.get(v.id);
     if (existing) {
-      animateTo(existing, [v.lat, v.lon]);
+      animateTo(existing, [v.lat, v.lon], v.id === selectedId ? 900 : 1200);
       existing.marker.setIcon(vehicleIcon(v, line));
       existing.marker.setPopupContent(popupHtml(v, line));
       existing.data = v;
     } else {
       const marker = L.marker([v.lat, v.lon], { icon: vehicleIcon(v, line), keyboard: false })
-        .bindPopup(popupHtml(v, line))
+        .bindPopup(popupHtml(v, line), { autoPan: true })
         .addTo(vehicleLayer);
+      marker.on('popupopen', () => selectVehicle(v.id));
+      marker.on('popupclose', () => { if (selectedId === v.id) selectVehicle(null); });
       markers.set(v.id, { marker, data: v });
     }
   }
   for (const [id, m] of markers) {
-    if (!seen.has(id)) { vehicleLayer.removeLayer(m.marker); markers.delete(id); }
+    if (!seen.has(id) && id !== selectedId) { vehicleLayer.removeLayer(m.marker); markers.delete(id); }
+  }
+}
+
+// ---------- Valgt kjøretøy: tett oppfølging ----------
+
+function selectVehicle(id) {
+  const prev = selectedId;
+  selectedId = id;
+  for (const pid of [prev, id]) {
+    const m = pid && markers.get(pid);
+    if (!m) continue;
+    const line = store.get().lines.find((l) => l.id === m.data.lineId);
+    m.marker.setIcon(vehicleIcon(m.data, line));
+    m.marker.setZIndexOffset(pid === id ? 1000 : 0);
+    m.marker.setPopupContent(popupHtml(m.data, line));
+  }
+  stopFocusPolling();
+  if (id && active && !document.hidden) startFocusPolling();
+  updateStatus();
+}
+
+function startFocusPolling() {
+  stopFocusPolling();
+  pollSelected();
+  selTimer = setInterval(pollSelected, FOCUS_MS);
+}
+
+function stopFocusPolling() {
+  clearInterval(selTimer); selTimer = null;
+  selAbort?.abort(); selAbort = null;
+}
+
+async function pollSelected() {
+  const id = selectedId;
+  if (!id || selAbort) return; // forrige forespørsel pågår fortsatt
+  selAbort = new AbortController();
+  try {
+    const v = await api.vehicleById(id, selAbort.signal);
+    if (!v || selectedId !== id) return;
+    const old = vehState.get(id);
+    v.lineId = old?.lineId || v.lineId;
+    if (old?.lastUpdated && v.lastUpdated && old.lastUpdated > v.lastUpdated) return;
+    vehState.set(id, v);
+    publish();
+    // Hold bussen i bildet når den kjører ut av kartutsnittet.
+    const ll = L.latLng(v.lat, v.lon);
+    if (!map.getBounds().pad(-0.15).contains(ll)) map.panTo(ll, { animate: true });
+  } catch { /* neste runde prøver igjen */ } finally {
+    selAbort = null;
   }
 }
 
 // Myk animasjon mellom posisjoner.
-function animateTo(entry, to) {
+function animateTo(entry, to, dur = 1200) {
   cancelAnimationFrame(entry.anim);
   const from = entry.marker.getLatLng();
   if (from.lat === to[0] && from.lng === to[1]) return;
-  const dur = 1200;
   const t0 = performance.now();
   const step = (t) => {
     const k = Math.min(1, (t - t0) / dur);

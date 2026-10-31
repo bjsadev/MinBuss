@@ -262,6 +262,14 @@ body[data-view="map"] main { padding-bottom: 0; }
 }
 .veh span { position: relative; z-index: 1; }
 .veh.stale { opacity: .45; filter: grayscale(.6); }
+.veh.selected { transform: scale(1.18); box-shadow: 0 0 0 3px var(--lc), 0 4px 14px rgba(0,0,0,.45); animation: focus-ring 1.6s ease-out infinite; }
+@keyframes focus-ring { 0% { box-shadow: 0 0 0 3px var(--lc), 0 0 0 3px color-mix(in srgb, var(--lc) 50%, transparent); } 100% { box-shadow: 0 0 0 3px var(--lc), 0 0 0 16px transparent; } }
+.leaflet-tooltip.stop-label {
+  background: var(--surface); color: var(--text); border: 0; border-radius: 8px;
+  padding: 3px 8px; font-size: 12.5px; font-weight: 700; box-shadow: var(--shadow); white-space: nowrap;
+}
+.leaflet-tooltip.stop-label::before { display: none; }
+.hide-stop-labels .stop-label { display: none; }
 .veh-arrow {
   position: absolute; inset: -9px; pointer-events: none;
 }
